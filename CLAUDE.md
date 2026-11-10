@@ -81,10 +81,11 @@ frameworks). Written to be picked up later by an engineer who was not part of th
 Code comments refer to its sections, for example "design doc Section 9" means "9. Performance budgets" below.
 
 - **Status:** Phase 1 built: plan steps 1–7 (see [README.md](README.md) for what was verified live and
-  what still needs an administrator run, the soak test and the performance run).
+  what still needs an administrator run, the soak test and the performance run). Phase 2 (MCP servers,
+  Section 12) built.
 - **Language:** C# on .NET Framework 4.6.2 (see "Target framework" above; .NET 10 only where 4.6.2 cannot work).
-- **Phase 1 scope:** AI agents built with coding frameworks. MCP servers come
-  next (see [Section 12](#12-phase-2-mcp-servers)).
+- **Phase 1 scope:** AI agents built with coding frameworks. **Phase 2:** MCP servers
+  (see [Section 12](#12-phase-2-mcp-servers)).
 
 ---
 
@@ -592,6 +593,9 @@ One record per agent:
   The observed model is the one that matters for risk.
 - Inventory records for **Installed** and **Referenced** use the same shape,
   with an empty `agent` block.
+- `kind`: `agent` or `mcp_server`. A server configured in an AI client also has an `mcpServer` block
+  (`client`, `configFile`, `transport`, `command`, `arguments`, `url`, `package`, `environmentVariableNames`);
+  a per-user configuration has no `project`. The summary counts `mcpServersFound` apart from `agentsFound`.
 - Send changes only (new, changed, removed), keyed by `id`.
 
 **Privacy:** never send source code off the machine. Snippets are capped at
@@ -613,7 +617,11 @@ pattern.
 
 ### 12. Phase 2: MCP servers
 
-Out of scope for Phase 1, but plan the data model for it.
+**Built.** MCP servers are findings with `"kind": "mcp_server"` (agents have `"kind": "agent"`). The four
+states keep their meaning: **referenced** = an AI client is configured to use the server, **implemented** =
+server code found in a project, **running** = its process (or traffic to it) was seen. Code:
+`Scanner/McpConfigs.cs` (client config files), the `mcp_*` rules in `Detection/`, and the MCP parts of
+`Watcher/Inventory.cs` and `Watcher/ProcessMonitor.cs`.
 
 - **Client configs on Windows** (per user profile):
   - Claude Desktop: `%APPDATA%\Claude\claude_desktop_config.json`
@@ -623,15 +631,28 @@ Out of scope for Phase 1, but plan the data model for it.
     `.vscode\mcp.json`
   - Windsurf: `%USERPROFILE%\.codeium\windsurf\mcp_config.json`
   - Cline: `%APPDATA%\Code\User\globalStorage\saoudrizwan.claude-dev\settings\cline_mcp_settings.json`
-  - Continue: `%USERPROFILE%\.continue\config.yaml` / `config.json`
+  - Continue: `%USERPROFILE%\.continue\config.yaml` (`config.json` is not read)
 
   Check these paths against current client versions; shadow-mcp keeps an
-  up-to-date list.
+  up-to-date list. The list lives in `McpClientConfigs` (`Scanner/McpConfigs.cs`).
+- **Which files a scan reads:** only these fixed paths, never a folder walk. A drive scan reads the per-user
+  files of every profile under `X:\Users`; a folder scan reads the per-user files inside the folder; every
+  scan reads the project-level files of each project root and scan root. The watcher re-reads a per-user
+  file when the change journal reports a change to it (these files sit in folders that are otherwise
+  skipped), and on the incremental schedule.
+- **What is reported per configured server:** client, config file, transport (`stdio`, `http`, `sse`),
+  command, arguments, URL, package (`npx -y <package>`, `uvx <package>`, `docker run ... <image>`), the
+  **names** of environment variables, and capabilities guessed from the name and package. Never reported:
+  environment variable values, arguments that are or assign secrets (`--api-key x`, `TOKEN=...`,
+  `Password=...`), URL logins and query strings (`postgresql://<redacted>@host/db`).
 - **MCP servers in source:** Python `mcp.server.fastmcp` / `FastMCP(` /
   `@mcp.tool`; TS `@modelcontextprotocol/sdk` / `new McpServer(`; C#
   `ModelContextProtocol` / `.AddMcpServer()` / `[McpServerTool]`.
-- **Running:** stdio servers are child processes of AI clients (link them
-  through the parent process ID); remote servers show up in proxy traffic.
+- **Running:** stdio servers are child processes of AI clients. They are matched by command line: a
+  process whose command line contains the server's package (or script path) marks that server running,
+  and it goes back to referenced when the process ends. `docker` was added to the watched programs.
+  Remote servers show up in proxy traffic: a request to a configured server's URL sets its
+  `lastSeenRunning` (no "stopped" event exists for remote servers, so `running` stays false).
 - **Never launch** a discovered MCP server to list its tools.
 
 ### 13. Testing strategy

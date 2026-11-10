@@ -13,14 +13,23 @@ public class RuntimeCorrelator
 {
     private class TrackedProcess
     {
-        public TrackedProcess(string projectRoot, string description)
+        public TrackedProcess(string projectRoot, List<string> mcpServerIds, string description)
         {
             ProjectRoot = projectRoot;
+            McpServerIds = mcpServerIds;
             Description = description;
         }
 
+        /// <summary>The project whose code the process runs, or null.</summary>
         public string ProjectRoot { get; }
+
+        /// <summary>Configured MCP servers this process is (Section 12). Empty for most processes.</summary>
+        public List<string> McpServerIds { get; }
+
         public string Description { get; }
+
+        /// <summary>Kept so servers configured after the process started can still be matched to it.</summary>
+        public string CommandLine { get; set; } = "";
     }
 
     private readonly Dictionary<int, TrackedProcess> processesById = new Dictionary<int, TrackedProcess>();
@@ -62,7 +71,15 @@ public class RuntimeCorrelator
         List<InventoryChange> changes = new List<InventoryChange>();
         foreach (TrackedProcess tracked in processesById.Values)
         {
-            changes.AddRange(inventory.MarkRunning(tracked.ProjectRoot, tracked.Description, now));
+            if (tracked.ProjectRoot != null)
+            {
+                changes.AddRange(inventory.MarkRunning(tracked.ProjectRoot, tracked.Description, now));
+            }
+
+            foreach (string serverId in inventory.FindMcpServersStartedBy(tracked.CommandLine))
+            {
+                changes.AddRange(inventory.MarkMcpServerRunning(serverId, tracked.Description, now));
+            }
         }
 
         return changes;
@@ -71,17 +88,29 @@ public class RuntimeCorrelator
     private List<InventoryChange> OnProcessStarted(ProcessEvent processEvent, AgentInventory inventory, DateTimeOffset now)
     {
         List<InventoryChange> changes = new List<InventoryChange>();
+        string runningProjectRoot = null;
         foreach (string scriptPath in ScriptPathResolver.FindScriptPaths(processEvent.CommandLine))
         {
-            string projectRoot = FindProjectRoot(scriptPath, inventory);
-            if (projectRoot == null)
+            runningProjectRoot = FindProjectRoot(scriptPath, inventory);
+            if (runningProjectRoot != null)
             {
-                continue;
+                changes.AddRange(inventory.MarkRunning(runningProjectRoot, processEvent.Description, now));
+                break; // one project per process
             }
+        }
 
-            processesById[processEvent.ProcessId] = new TrackedProcess(projectRoot, processEvent.Description);
-            changes.AddRange(inventory.MarkRunning(projectRoot, processEvent.Description, now));
-            break; // one project per process
+        // An MCP server that an AI client started from its configuration (npx, uvx, docker, ...).
+        List<string> mcpServerIds = inventory.FindMcpServersStartedBy(processEvent.CommandLine);
+        foreach (string serverId in mcpServerIds)
+        {
+            changes.AddRange(inventory.MarkMcpServerRunning(serverId, processEvent.Description, now));
+        }
+
+        if (runningProjectRoot != null || mcpServerIds.Count > 0)
+        {
+            TrackedProcess tracked = new TrackedProcess(runningProjectRoot, mcpServerIds, processEvent.Description);
+            tracked.CommandLine = processEvent.CommandLine;
+            processesById[processEvent.ProcessId] = tracked;
         }
 
         return changes;
@@ -95,7 +124,18 @@ public class RuntimeCorrelator
         }
 
         processesById.Remove(processId);
-        return inventory.MarkProcessEnded(tracked.ProjectRoot, tracked.Description, now);
+        List<InventoryChange> changes = new List<InventoryChange>();
+        if (tracked.ProjectRoot != null)
+        {
+            changes.AddRange(inventory.MarkProcessEnded(tracked.ProjectRoot, tracked.Description, now));
+        }
+
+        foreach (string serverId in tracked.McpServerIds)
+        {
+            changes.AddRange(inventory.MarkMcpServerProcessEnded(serverId, tracked.Description, now));
+        }
+
+        return changes;
     }
 
     /// <summary>
@@ -332,6 +372,9 @@ public static class ScriptPathResolver
         "node", "npx", "tsx", "ts-node", "bun", "deno", "dotnet",
         "jupyter", "jupyter-lab", "jupyter-notebook", "ipython", "streamlit", "chainlit", "uvicorn", "fastapi",
         "langgraph", "crewai", "mastra", "n8n",
+
+        // MCP servers that AI clients start in containers (Section 12).
+        "docker",
     };
 
     private static readonly string[] ScriptExtensions =

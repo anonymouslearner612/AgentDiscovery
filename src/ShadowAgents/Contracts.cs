@@ -14,7 +14,17 @@ public static class RecordTypes
     public const string Summary = "summary";
 }
 
-/// <summary>The four discovery states (Section 3), as written in the output.</summary>
+/// <summary>What a finding is about (Section 12): an AI agent, or an MCP server that gives agents tools.</summary>
+public static class FindingKinds
+{
+    public const string Agent = "agent";
+    public const string McpServer = "mcp_server";
+}
+
+/// <summary>
+/// The four discovery states (Section 3), as written in the output. For MCP servers (Section 12):
+/// "referenced" = configured in an AI client, "implemented" = server code found, "running" = seen running.
+/// </summary>
 public static class FindingStates
 {
     public const string Installed = "installed";
@@ -28,6 +38,9 @@ public class FindingRecord
     public string RecordType { get; set; } = RecordTypes.Finding;
     public int SchemaVersion { get; set; } = 1;
     public string Id { get; set; } = "";
+
+    /// <summary>One of <see cref="FindingKinds"/>.</summary>
+    public string Kind { get; set; } = FindingKinds.Agent;
 
     /// <summary>One of <see cref="FindingStates"/>.</summary>
     public string State { get; set; } = "";
@@ -45,16 +58,58 @@ public class FindingRecord
     /// <summary>Set for installed records: the environment the package is installed in.</summary>
     public EnvironmentRecord Environment { get; set; }
 
+    /// <summary>Set for MCP servers configured in an AI client (kind "mcp_server", state "referenced" or "running").</summary>
+    public McpServerRecord McpServer { get; set; }
+
     public List<EvidenceRecord> Evidence { get; set; } = new List<EvidenceRecord>();
     public RuntimeRecord Runtime { get; set; } = new RuntimeRecord();
     public DateTimeOffset FirstSeen { get; set; }
     public DateTimeOffset LastSeen { get; set; }
 
-    /// <summary>True for agents (implemented or running); false for inventory.</summary>
+    /// <summary>True for agents and MCP servers found in code (implemented or running); false for inventory.</summary>
     public bool IsAgent()
     {
+        if (McpServer != null)
+        {
+            return false; // a configured MCP server is not code we found, even while it runs
+        }
+
         return State == FindingStates.Implemented || State == FindingStates.Running;
     }
+
+    /// <summary>True for an MCP server read from an AI client's configuration file.</summary>
+    public bool IsConfiguredMcpServer()
+    {
+        return McpServer != null;
+    }
+}
+
+/// <summary>An MCP server as an AI client is configured to start or reach it. Secrets are never included.</summary>
+public class McpServerRecord
+{
+    /// <summary>The AI client whose configuration lists the server, such as "claude_desktop" or "cursor".</summary>
+    public string Client { get; set; } = "";
+
+    /// <summary>Full path of the configuration file.</summary>
+    public string ConfigFile { get; set; } = "";
+
+    /// <summary>"stdio" (a local process the client starts) or "http" / "sse" (a remote server).</summary>
+    public string Transport { get; set; } = "";
+
+    /// <summary>For stdio servers: the program the client starts, such as "npx", "uvx" or "docker".</summary>
+    public string Command { get; set; }
+
+    /// <summary>For stdio servers: the program's arguments. Arguments that look like secrets are left out.</summary>
+    public List<string> Arguments { get; set; } = new List<string>();
+
+    /// <summary>For remote servers: the address, without query string or credentials.</summary>
+    public string Url { get; set; }
+
+    /// <summary>The package the server comes from, when the command names one ("@modelcontextprotocol/server-github").</summary>
+    public string Package { get; set; }
+
+    /// <summary>Names of the environment variables the client passes. Their values are never read.</summary>
+    public List<string> EnvironmentVariableNames { get; set; } = new List<string>();
 }
 
 public class FrameworkRecord
@@ -159,6 +214,7 @@ public class SummaryRecord
     public int FilesUnreadable { get; set; }
     public int FilesWithDetectionCap { get; set; }
     public int AgentsFound { get; set; }
+    public int McpServersFound { get; set; }
     public int InventoryRecords { get; set; }
     public bool StoppedEarly { get; set; }
     public string StopReason { get; set; }
@@ -218,6 +274,12 @@ public class ScanJob
 
     /// <summary>JSON lines output file. Standard output when empty.</summary>
     public string OutputPath { get; set; }
+
+    /// <summary>
+    /// MCP client configuration files to read on their own, without walking any folder. The watcher uses
+    /// this when one of them changes (Section 12).
+    /// </summary>
+    public List<string> McpConfigFiles { get; set; } = new List<string>();
 
     public static ScanJob LoadFromFile(string jobFilePath)
     {

@@ -31,6 +31,11 @@ public class FindingRecordBuilder
         string id = FindingId.Compute(this.host, root.RootPath, agent.FrameworkKey, relativeFile, agent.Name);
 
         FindingRecord record = NewRecord(id, FindingStates.Implemented, agent.FrameworkKey, frameworkVersion);
+        if (McpFrameworks.IsMcpServer(agent.FrameworkKey))
+        {
+            record.Kind = FindingKinds.McpServer;
+        }
+
         record.Confidence = agent.Confidence.ToString().ToLowerInvariant();
         record.Agent = DescribeAgent(agent);
         record.Project = DescribeProject(root, ProjectMetadata.ProjectName(root), SkipRules.IsTestPath(relativeFile));
@@ -63,6 +68,56 @@ public class FindingRecordBuilder
             record.Runtime.LastSeenRunning = this.scanTime;
         }
 
+        return record;
+    }
+
+    /// <summary>
+    /// An MCP server listed in an AI client's configuration (Section 12). A project-level file
+    /// (".mcp.json" in a repository) belongs to that project; a per-user file has no project, and the
+    /// file's own path tells where it is.
+    /// </summary>
+    public FindingRecord ForConfiguredMcpServer(McpConfigLocation location, ConfiguredMcpServer server, string snippet)
+    {
+        string idRoot = PathHelpers.FolderOf(location.Path);
+        if (location.ProjectFolder != null)
+        {
+            idRoot = location.ProjectFolder;
+        }
+
+        string id = FindingId.Compute(this.host, idRoot, McpFrameworks.ClientConfig, location.Path, location.Client + ":" + server.Name);
+        FindingRecord record = NewRecord(id, FindingStates.Referenced, McpFrameworks.ClientConfig, null);
+        record.Kind = FindingKinds.McpServer;
+        record.Confidence = "high";
+
+        DetectedAgent profile = McpServerProfile.Classify(server);
+        record.Agent = new AgentRecord
+        {
+            Name = server.Name,
+            Capabilities = profile.Capabilities,
+            RiskFlags = profile.RiskFlags,
+        };
+
+        record.McpServer = new McpServerRecord
+        {
+            Client = location.Client,
+            ConfigFile = location.Path,
+            Transport = server.Transport,
+            Command = server.Command,
+            Arguments = server.Arguments,
+            Url = server.Url,
+            Package = server.Package,
+            EnvironmentVariableNames = server.EnvironmentVariableNames,
+        };
+
+        string evidenceFile = location.Path;
+        if (location.ProjectFolder != null)
+        {
+            ProjectRoot projectRoot = new ProjectRoot { RootPath = location.ProjectFolder };
+            record.Project = DescribeProject(projectRoot, ProjectMetadata.ProjectName(projectRoot), isTest: false);
+            evidenceFile = RelativePath(location.ProjectFolder, location.Path);
+        }
+
+        record.Evidence.Add(NewEvidence(evidenceFile, server.Line, snippet, null));
         return record;
     }
 

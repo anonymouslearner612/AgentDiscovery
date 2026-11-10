@@ -70,6 +70,7 @@ public class JavaScriptAgentDetector
         }
 
         candidates = MergeWrappedAgents(source, valueReader, candidates);
+        AttachToolMethodCalls(source, valueReader, candidates);
         foreach (Candidate candidate in candidates)
         {
             CapabilityClassifier.Apply(candidate.Agent);
@@ -787,6 +788,58 @@ public class JavaScriptAgentDetector
         ExplicitArgument,
         Variable,
         Fallback,
+    }
+
+    /// <summary>MCP SDK: <c>server.tool("get_forecast", ...)</c> adds a tool named "get_forecast" to <c>server</c>.</summary>
+    private static void AttachToolMethodCalls(JavaScriptSource source, JavaScriptValueReader valueReader, List<Candidate> candidates)
+    {
+        foreach (Candidate candidate in candidates)
+        {
+            if (candidate.Agent.VariableName == null)
+            {
+                continue;
+            }
+
+            foreach (string methodName in candidate.Rule.ToolMethodCalls)
+            {
+                foreach (CallSite call in FindCallSites(source, methodName, MaxHelperCallsPerFile))
+                {
+                    if (call.Qualifier != candidate.Agent.VariableName)
+                    {
+                        continue;
+                    }
+
+                    string toolName = ReadFirstStringArgument(source, valueReader, call);
+                    if (toolName != null)
+                    {
+                        ListHelpers.AddDistinct(candidate.Agent.Tools, toolName);
+                    }
+                }
+            }
+        }
+    }
+
+    private static string ReadFirstStringArgument(JavaScriptSource source, JavaScriptValueReader valueReader, CallSite call)
+    {
+        int closeParen = source.FindClosingBracket(call.OpenParen, Settings.MaxConstructorScanChars);
+        if (closeParen < 0)
+        {
+            return null;
+        }
+
+        List<SourceSpan> arguments = source.SplitTopLevel(call.OpenParen, closeParen);
+        if (arguments.Count == 0)
+        {
+            return null;
+        }
+
+        string value;
+        if (!JavaScriptValueReader.TryReadStringLiteral(valueReader.TextOf(arguments[0]).Trim(), out value))
+        {
+            return null;
+        }
+
+        return value;
     }
 
     private sealed class Candidate

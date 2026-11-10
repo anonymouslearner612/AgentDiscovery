@@ -28,6 +28,7 @@ public static class PythonFrameworkRules
         GoogleAdk(),
         Smolagents(),
         Haystack(),
+        McpServerPython(),
     };
 
     private static FrameworkRule LangChain()
@@ -345,6 +346,30 @@ public static class PythonFrameworkRules
             DescriptionArgs = new List<string> { "system_prompt" },
             ModelArgs = new List<string> { "chat_generator" },
             ToolDecorators = new List<string> { "tool" },
+        };
+    }
+
+    /// <summary>
+    /// MCP servers (Section 12): <c>mcp = FastMCP("weather")</c> with tools added as <c>@mcp.tool()</c>.
+    /// Works for both <c>mcp.server.fastmcp</c> and the separate <c>fastmcp</c> package. Importing only
+    /// the client side (<c>from mcp import ClientSession</c>) does not count.
+    /// </summary>
+    private static FrameworkRule McpServerPython()
+    {
+        return new FrameworkRule
+        {
+            Key = McpFrameworks.Python,
+            Language = SourceLanguage.Python,
+            ModuleRoots = new List<string> { "mcp", "fastmcp" },
+            RequiredImportedNames = new List<string> { "FastMCP" },
+            Constructors = new List<AgentConstructor>
+            {
+                new AgentConstructor { CallName = "FastMCP", PositionalArgs = new List<ArgumentRole> { ArgumentRole.Name } },
+            },
+            DescriptionArgs = new List<string> { "instructions" },
+            ModelArgs = new List<string>(),
+            ToolArgs = new List<string> { "tools" },
+            AgentBoundToolDecorators = new List<string> { "tool" },
         };
     }
 }

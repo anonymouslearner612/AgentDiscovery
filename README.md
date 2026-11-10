@@ -1,10 +1,10 @@
-# Shadow AI Agent Discovery: Phase 1
+# Shadow AI Agent Discovery
 
-Finds AI agents built with coding frameworks on a Windows endpoint, including ones nobody registered
-("shadow AI"). The design is in [CLAUDE.md](CLAUDE.md) (section "Design"), together with the coding rules; this README
+Finds AI agents built with coding frameworks, and the MCP servers that give them tools, on a Windows
+endpoint, including ones nobody registered ("shadow AI"). The design is in [CLAUDE.md](CLAUDE.md) (section "Design"), together with the coding rules; this README
 explains what is built, how to run it, and how the code is organised.
 
-## Status: all Phase 1 plan steps are built
+## Status: Phase 1 (agents) and Phase 2 (MCP servers) are built
 
 | Plan step (design Section 11) | What exists | Verified how |
 |---|---|---|
@@ -15,6 +15,7 @@ explains what is built, how to run it, and how the code is organised.
 | 5. Running state | WMI process events, command-line → project matching, proxy correlation, observed models | Unit tests + live run with a real Python agent and a proxy event |
 | 6. More languages | TS/JS (7 frameworks), C# via Roslyn (4 frameworks), n8n workflows | Unit + end-to-end tests |
 | 7. Hardening | Hostile-input tests, journal reset/wrap → new baseline, non-NTFS fallback, scan telemetry, pause on battery or load | Unit tests |
+| Phase 2: MCP servers (design Section 12) | Servers configured in Claude Desktop, Claude Code, Cursor, VS Code, Windsurf, Cline and Continue; FastMCP, TS `McpServer` and C# `AddMcpServer` servers in code; running by command line and proxy URL; secrets left out | Unit + end-to-end tests; live read of this machine's `.claude.json` and VS Code settings |
 
 Not done, because they need time or machines rather than code: the 7-day soak test, the 1M-file
 performance run, the comparison against ai-surface on its corpus, and a run as administrator/SYSTEM
@@ -42,7 +43,7 @@ AgentDiscovery/
     Watcher/                   "watch": journal, schedules, processes, proxy events, inventory
     Detection/                 reads source text and finds agents (Python, TS/JS, C#, n8n)
     Windows/                   Windows API calls: NTFS, change journal, Job Object, power and CPU
-  tests/ShadowAgents.Tests/    all tests (137)
+  tests/ShadowAgents.Tests/    all tests (158)
   ShadowAgents.slnx            solution file (opens in VS Code and Visual Studio)
 ```
 
@@ -105,7 +106,8 @@ falls back to walking folders and to scheduled scans, and says so in the output.
 One JSON object per line. `recordType` is `finding` or `summary`; the last line is the summary, which
 includes `listingMethods` (for example `C:: master-file-table` or `D:: folder-walk (access denied ...)`),
 the work done, and whether the scan stopped early. Findings follow Section 10 of the design doc, plus
-`environment` on Installed records and `evidence[].cell` for notebooks. Exit codes: 0 done, 1 error,
+`environment` on Installed records, `evidence[].cell` for notebooks, and `kind` (`agent` or `mcp_server`)
+with an `mcpServer` block for MCP servers configured in AI clients. Exit codes: 0 done, 1 error,
 2 bad arguments, 3 stopped early (Ctrl+C).
 
 ### Watcher files (in the state folder)

@@ -158,6 +158,9 @@ public class ScanRequest
     /// <summary>Project folders to scan (after file changes, a new process, or the incremental schedule).</summary>
     public List<string> Roots { get; } = new List<string>();
 
+    /// <summary>Per-user MCP configuration files to re-read on their own (Section 12).</summary>
+    public List<string> McpConfigFiles { get; } = new List<string>();
+
     /// <summary>Why: "baseline", "full-schedule", "incremental-schedule", "file-change" or "process-start".</summary>
     public string Reason { get; set; } = "";
 

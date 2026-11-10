@@ -114,6 +114,9 @@ public enum SourceLanguage
     TypeScript,
     CSharp,
     LowCode,
+
+    /// <summary>Not code: an AI client's configuration file (MCP servers, Section 12).</summary>
+    Config,
 }
 
 public enum Confidence
@@ -243,7 +246,7 @@ public sealed class DetectedAgent
     public List<string> Capabilities { get; set; } = new List<string>();
     public List<string> RiskFlags { get; set; } = new List<string>();
     public Confidence Confidence { get; set; }
-    public Evidence Evidence { get; set; } = new("", 0, "");
+    public Evidence Evidence { get; set; } = new Evidence("", 0, "");
 
     /// <summary>True when the code around the agent shows a human approval step.</summary>
     public bool HasHumanApproval { get; set; }
@@ -279,6 +282,9 @@ public sealed class FileDetectionResult
 
     /// <summary>Functions marked with a framework tool decorator such as <c>@tool</c>.</summary>
     public List<string> DecoratedTools { get; set; } = new List<string>();
+
+    /// <summary>C# methods marked <c>[McpServerTool]</c>. They belong to the project's MCP server, wherever it is set up.</summary>
+    public List<string> McpServerTools { get; set; } = new List<string>();
 
     /// <summary>True when a per-file safety cap stopped detection early (hostile or very unusual input).</summary>
     public bool DetectionCapHit { get; set; }

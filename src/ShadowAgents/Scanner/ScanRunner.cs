@@ -109,6 +109,9 @@ public class ScanRunner
 
         WriteN8nAgents(candidateIndex, recordBuilder, writer);
 
+        // MCP servers configured in AI clients (Section 12). Read from known file paths, never started.
+        WriteConfiguredMcpServers(projectRoots, recordBuilder, writer);
+
         if (cancellationToken.IsCancellationRequested)
         {
             statistics.StoppedEarly = true;
@@ -311,7 +314,14 @@ public class ScanRunner
 
             string version = FindFrameworkVersion(projectResult.Root, agent.FrameworkKey, installedPackages);
             writer.Write(recordBuilder.ForAgent(projectResult, agent, version));
-            statistics.AgentsFound++;
+            if (McpFrameworks.IsMcpServer(agent.FrameworkKey))
+            {
+                statistics.McpServersFound++;
+            }
+            else
+            {
+                statistics.AgentsFound++;
+            }
         }
     }
 
@@ -336,6 +346,112 @@ public class ScanRunner
                 writer.Write(recordBuilder.ForN8nAgent(n8nFolder, n8nAgent));
                 statistics.AgentsFound++;
             }
+        }
+    }
+
+    // ------------------------------------------------------------ MCP client configurations (Section 12)
+
+    private void WriteConfiguredMcpServers(List<ProjectRoot> projectRoots, FindingRecordBuilder recordBuilder, FindingWriter writer)
+    {
+        foreach (McpConfigLocation location in FindMcpConfigFiles(projectRoots))
+        {
+            string configText;
+            FileReadOutcome readOutcome = SourceFileReader.TryRead(new FileInfo(location.Path), Settings.MaxFileBytes, out configText);
+            if (readOutcome != FileReadOutcome.Read)
+            {
+                continue;
+            }
+
+            List<ConfiguredMcpServer> servers = McpConfigReader.Read(location.Path, configText);
+            if (servers.Count > 0)
+            {
+                LogProgress("Read " + servers.Count + " MCP servers from " + location.Path);
+            }
+
+            string[] configLines = configText.Split('\n');
+            foreach (ConfiguredMcpServer server in servers)
+            {
+                string snippet = "";
+                if (server.Line > 0 && server.Line <= configLines.Length)
+                {
+                    snippet = SecretFilter.Redact(TextCleanup.MakeSnippet(configLines[server.Line - 1]));
+                }
+
+                writer.Write(recordBuilder.ForConfiguredMcpServer(location, server, snippet));
+                statistics.McpServersFound++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The MCP configuration files this scan covers: files the job names; per-user files in every profile
+    /// on a scanned drive or inside a scanned folder; and project-level files in every project and scan root.
+    /// Only fixed paths are checked, so no folder is walked for this.
+    /// </summary>
+    private List<McpConfigLocation> FindMcpConfigFiles(List<ProjectRoot> projectRoots)
+    {
+        List<McpConfigLocation> locations = new List<McpConfigLocation>();
+        HashSet<string> seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string configFile in this.job.McpConfigFiles)
+        {
+            McpConfigLocation location = McpClientConfigs.Identify(configFile);
+            if (location != null && File.Exists(configFile))
+            {
+                AddLocation(locations, seenPaths, location);
+            }
+        }
+
+        foreach (string volume in ResolveVolumes(this.job.Volumes))
+        {
+            foreach (string profile in McpClientConfigs.UserProfilesOnDrive(volume))
+            {
+                AddLocations(locations, seenPaths, McpClientConfigs.UserConfigsIn(profile));
+            }
+        }
+
+        foreach (string root in this.job.Roots)
+        {
+            string fullRoot = Path.GetFullPath(root);
+            foreach (string profile in McpClientConfigs.UserProfilesOnDrive(Path.GetPathRoot(fullRoot)))
+            {
+                foreach (McpConfigLocation location in McpClientConfigs.UserConfigsIn(profile))
+                {
+                    if (AgentInventory.IsSameOrInside(location.Path, fullRoot))
+                    {
+                        AddLocation(locations, seenPaths, location);
+                    }
+                }
+            }
+
+            AddLocations(locations, seenPaths, McpClientConfigs.ProjectConfigsIn(fullRoot));
+        }
+
+        foreach (ProjectRoot projectRoot in projectRoots)
+        {
+            AddLocations(locations, seenPaths, McpClientConfigs.ProjectConfigsIn(projectRoot.RootPath));
+        }
+
+        return locations;
+    }
+
+    private static void AddLocations(List<McpConfigLocation> locations, HashSet<string> seenPaths, List<McpConfigLocation> newLocations)
+    {
+        foreach (McpConfigLocation location in newLocations)
+        {
+            AddLocation(locations, seenPaths, location);
+        }
+    }
+
+    /// <summary>
+    /// A file is read once. A profile folder can also look like a project folder (C:\Users\alice\.cursor\mcp.json
+    /// is both "per user" and ".cursor\mcp.json in a folder"); the per-user meaning is added first and wins.
+    /// </summary>
+    private static void AddLocation(List<McpConfigLocation> locations, HashSet<string> seenPaths, McpConfigLocation location)
+    {
+        if (seenPaths.Add(location.Path))
+        {
+            locations.Add(location);
         }
     }
 
@@ -390,6 +506,7 @@ public class ScanRunner
             FilesUnreadable = statistics.FilesUnreadable,
             FilesWithDetectionCap = statistics.FilesWithDetectionCap,
             AgentsFound = statistics.AgentsFound,
+            McpServersFound = statistics.McpServersFound,
             InventoryRecords = statistics.InventoryRecords,
             StoppedEarly = statistics.StoppedEarly,
             StopReason = statistics.StopReason,
@@ -406,6 +523,7 @@ public class ScanRunner
         this.log.WriteLine();
         this.log.WriteLine("Scan finished in " + FormatDuration(timeTaken) + ".");
         this.log.WriteLine("  Agents found:      " + statistics.AgentsFound);
+        this.log.WriteLine("  MCP servers found: " + statistics.McpServersFound + " (configured in AI clients or built in code)");
         this.log.WriteLine("  Other findings:    " + statistics.InventoryRecords + " (installed or referenced frameworks)");
         this.log.WriteLine("  Files read:        " + statistics.FilesRead + " (" + statistics.FilesFromCache + " more were unchanged and came from the cache)");
 

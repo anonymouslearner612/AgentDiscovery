@@ -18,6 +18,7 @@ public class CSharpAgentDetector
     private const string AgentFramework = "microsoft_agent_framework";
     private const string AutoGen = "autogen_dotnet";
     private const string ExtensionsAI = "microsoft_extensions_ai";
+    private const string McpServer = McpFrameworks.CSharp;
 
     // Namespace prefix in "using ..." lines → framework key. Order matters: the first match wins.
     private static readonly string[][] NamespaceToFramework =
@@ -26,6 +27,7 @@ public class CSharpAgentDetector
         new[] { "Microsoft.Agents.AI", AgentFramework },
         new[] { "AutoGen", AutoGen },
         new[] { "Microsoft.Extensions.AI", ExtensionsAI },
+        new[] { "ModelContextProtocol", McpServer },
     };
 
     private static readonly HashSet<string> SemanticKernelAgentTypes = new HashSet<string>
@@ -90,6 +92,7 @@ public class CSharpAgentDetector
         FindAgentFrameworkAgents(root, facts, filePath, result);
         FindAutoGenAgents(root, facts, filePath, result);
         FindExtensionsAIAgents(root, facts, filePath, result);
+        FindMcpServers(root, filePath, result);
 
         foreach (DetectedAgent agent in result.Agents)
         {
@@ -106,7 +109,8 @@ public class CSharpAgentDetector
         return sourceText.Contains("SemanticKernel", StringComparison.Ordinal)
             || sourceText.Contains("Microsoft.Agents.AI", StringComparison.Ordinal)
             || sourceText.Contains("AutoGen", StringComparison.Ordinal)
-            || sourceText.Contains("Microsoft.Extensions.AI", StringComparison.Ordinal);
+            || sourceText.Contains("Microsoft.Extensions.AI", StringComparison.Ordinal)
+            || sourceText.Contains("ModelContextProtocol", StringComparison.Ordinal);
     }
 
     private static List<string> FindReferencedFrameworks(CompilationUnitSyntax root, string sourceText)
@@ -521,6 +525,44 @@ public class CSharpAgentDetector
             ListHelpers.AddDistinct(agent.Models, facts.Models);
             ListHelpers.AddDistinct(agent.Tools, tools);
             result.Agents.Add(agent);
+        }
+    }
+
+    // ------------------------------------------------------------ MCP servers (Section 12)
+
+    /// <summary>
+    /// <c>builder.Services.AddMcpServer().WithToolsFromAssembly()</c> starts an MCP server. Its tools are
+    /// methods marked <c>[McpServerTool]</c>, usually in other files, so they are also kept in
+    /// <see cref="FileDetectionResult.McpServerTools"/> for the scanner to merge per project.
+    /// </summary>
+    private static void FindMcpServers(CompilationUnitSyntax root, string filePath, FileDetectionResult result)
+    {
+        if (!result.ReferencedFrameworks.Contains(McpServer))
+        {
+            return;
+        }
+
+        foreach (SyntaxNode node in root.DescendantNodes())
+        {
+            MethodDeclarationSyntax method = node as MethodDeclarationSyntax;
+            if (method != null && HasAttribute(method, "McpServerTool"))
+            {
+                ListHelpers.AddDistinct(result.McpServerTools, method.Identifier.ValueText);
+            }
+        }
+
+        foreach (SyntaxNode node in root.DescendantNodes())
+        {
+            InvocationExpressionSyntax invocation = node as InvocationExpressionSyntax;
+            if (invocation == null || MethodName(invocation) != "AddMcpServer")
+            {
+                continue;
+            }
+
+            DetectedAgent server = NewAgent(McpServer, invocation, filePath);
+            SetName(server, null, invocation, "mcp_server");
+            ListHelpers.AddDistinct(server.Tools, result.McpServerTools);
+            result.Agents.Add(server);
         }
     }
 

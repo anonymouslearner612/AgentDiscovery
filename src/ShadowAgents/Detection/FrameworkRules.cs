@@ -122,6 +122,12 @@ public sealed class FrameworkRule
     public IReadOnlyList<ToolRegistrationCall> ToolRegistrationCalls { get; set; } = new List<ToolRegistrationCall>();
 
     /// <summary>
+    /// TS/JS only: methods called on the agent's variable whose first argument is a tool name, such as the
+    /// MCP SDK's <c>server.tool("get_weather", ...)</c> and <c>server.registerTool("get_weather", ...)</c>.
+    /// </summary>
+    public IReadOnlyList<string> ToolMethodCalls { get; set; } = new List<string>();
+
+    /// <summary>
     /// TS/JS only: a property that holds more settings, such as the Claude Agent SDK's
     /// <c>query({ prompt, options: { systemPrompt, allowedTools } })</c>.
     /// </summary>
@@ -186,31 +192,20 @@ public sealed class FrameworkRule
 }
 
 public sealed class FrameworkInfo
-
 {
-
     public FrameworkInfo(string key, string displayName, SourceLanguage language)
-
     {
-
         Key = key;
-
         DisplayName = displayName;
-
         Language = language;
-
     }
 
-
     public string Key { get; }
-
     public string DisplayName { get; }
-
     public SourceLanguage Language { get; }
-
 }
 
-/// <summary>Every framework in scope for Phase 1 (Section 2), with its display name and language.</summary>
+/// <summary>Every framework in scope (Section 2, and MCP servers from Section 12), with its display name and language.</summary>
 public static class FrameworkCatalog
 {
     private static readonly Dictionary<string, FrameworkInfo> FrameworksByKey = BuildCatalog();
@@ -230,38 +225,44 @@ public static class FrameworkCatalog
         List<FrameworkInfo> frameworks = new List<FrameworkInfo>
         {
             // Python
-            new("langchain", "LangChain", SourceLanguage.Python),
-            new("langgraph", "LangGraph", SourceLanguage.Python),
-            new("crewai", "CrewAI", SourceLanguage.Python),
-            new("autogen", "AutoGen 0.2 / AG2", SourceLanguage.Python),
-            new("autogen_agentchat", "AutoGen 0.4+", SourceLanguage.Python),
-            new("semantic_kernel", "Semantic Kernel", SourceLanguage.Python),
-            new("llama_index", "LlamaIndex", SourceLanguage.Python),
-            new("pydantic_ai", "Pydantic AI", SourceLanguage.Python),
-            new("openai_agents", "OpenAI Agents SDK", SourceLanguage.Python),
-            new("strands", "AWS Strands", SourceLanguage.Python),
-            new("claude_agent_sdk", "Claude Agent SDK", SourceLanguage.Python),
-            new("haystack", "Haystack", SourceLanguage.Python),
-            new("google_adk", "Google ADK", SourceLanguage.Python),
-            new("smolagents", "smolagents", SourceLanguage.Python),
+            new FrameworkInfo("langchain", "LangChain", SourceLanguage.Python),
+            new FrameworkInfo("langgraph", "LangGraph", SourceLanguage.Python),
+            new FrameworkInfo("crewai", "CrewAI", SourceLanguage.Python),
+            new FrameworkInfo("autogen", "AutoGen 0.2 / AG2", SourceLanguage.Python),
+            new FrameworkInfo("autogen_agentchat", "AutoGen 0.4+", SourceLanguage.Python),
+            new FrameworkInfo("semantic_kernel", "Semantic Kernel", SourceLanguage.Python),
+            new FrameworkInfo("llama_index", "LlamaIndex", SourceLanguage.Python),
+            new FrameworkInfo("pydantic_ai", "Pydantic AI", SourceLanguage.Python),
+            new FrameworkInfo("openai_agents", "OpenAI Agents SDK", SourceLanguage.Python),
+            new FrameworkInfo("strands", "AWS Strands", SourceLanguage.Python),
+            new FrameworkInfo("claude_agent_sdk", "Claude Agent SDK", SourceLanguage.Python),
+            new FrameworkInfo("haystack", "Haystack", SourceLanguage.Python),
+            new FrameworkInfo("google_adk", "Google ADK", SourceLanguage.Python),
+            new FrameworkInfo("smolagents", "smolagents", SourceLanguage.Python),
 
             // TypeScript / JavaScript
-            new("langchain_js", "LangChain.js", SourceLanguage.TypeScript),
-            new("langgraph_js", "LangGraph.js", SourceLanguage.TypeScript),
-            new("vercel_ai_sdk", "Vercel AI SDK", SourceLanguage.TypeScript),
-            new("mastra", "Mastra", SourceLanguage.TypeScript),
-            new("openai_agents_js", "OpenAI Agents SDK (JS)", SourceLanguage.TypeScript),
-            new("llamaindex_ts", "LlamaIndex.TS", SourceLanguage.TypeScript),
-            new("claude_agent_sdk_ts", "Claude Agent SDK (TS)", SourceLanguage.TypeScript),
+            new FrameworkInfo("langchain_js", "LangChain.js", SourceLanguage.TypeScript),
+            new FrameworkInfo("langgraph_js", "LangGraph.js", SourceLanguage.TypeScript),
+            new FrameworkInfo("vercel_ai_sdk", "Vercel AI SDK", SourceLanguage.TypeScript),
+            new FrameworkInfo("mastra", "Mastra", SourceLanguage.TypeScript),
+            new FrameworkInfo("openai_agents_js", "OpenAI Agents SDK (JS)", SourceLanguage.TypeScript),
+            new FrameworkInfo("llamaindex_ts", "LlamaIndex.TS", SourceLanguage.TypeScript),
+            new FrameworkInfo("claude_agent_sdk_ts", "Claude Agent SDK (TS)", SourceLanguage.TypeScript),
 
             // .NET
-            new("semantic_kernel_dotnet", "Semantic Kernel (.NET)", SourceLanguage.CSharp),
-            new("microsoft_agent_framework", "Microsoft Agent Framework", SourceLanguage.CSharp),
-            new("autogen_dotnet", "AutoGen.NET", SourceLanguage.CSharp),
-            new("microsoft_extensions_ai", "Microsoft.Extensions.AI", SourceLanguage.CSharp),
+            new FrameworkInfo("semantic_kernel_dotnet", "Semantic Kernel (.NET)", SourceLanguage.CSharp),
+            new FrameworkInfo("microsoft_agent_framework", "Microsoft Agent Framework", SourceLanguage.CSharp),
+            new FrameworkInfo("autogen_dotnet", "AutoGen.NET", SourceLanguage.CSharp),
+            new FrameworkInfo("microsoft_extensions_ai", "Microsoft.Extensions.AI", SourceLanguage.CSharp),
 
             // Low-code
-            new("n8n", "n8n", SourceLanguage.LowCode),
+            new FrameworkInfo("n8n", "n8n", SourceLanguage.LowCode),
+
+            // MCP servers (Section 12)
+            new FrameworkInfo(McpFrameworks.Python, "MCP Python SDK / FastMCP", SourceLanguage.Python),
+            new FrameworkInfo(McpFrameworks.TypeScript, "MCP TypeScript SDK", SourceLanguage.TypeScript),
+            new FrameworkInfo(McpFrameworks.CSharp, "MCP C# SDK", SourceLanguage.CSharp),
+            new FrameworkInfo(McpFrameworks.ClientConfig, "MCP client configuration", SourceLanguage.Config),
         };
 
         Dictionary<string, FrameworkInfo> frameworksByKey = new Dictionary<string, FrameworkInfo>(StringComparer.Ordinal);
@@ -311,6 +312,8 @@ public static class PackageCatalog
         new PackagePattern("farm_haystack", "haystack"),
         new PackagePattern("google_adk", "google_adk"),
         new PackagePattern("smolagents", "smolagents"),
+        new PackagePattern("mcp", McpFrameworks.Python),
+        new PackagePattern("fastmcp", McpFrameworks.Python),
     };
 
     private static readonly PackagePattern[] NpmPackages = new PackagePattern[]
@@ -326,6 +329,7 @@ public static class PackageCatalog
         new PackagePattern("@llamaindex/*", "llamaindex_ts"),
         new PackagePattern("@anthropic-ai/claude-agent-sdk", "claude_agent_sdk_ts"),
         new PackagePattern("n8n", "n8n"),
+        new PackagePattern("@modelcontextprotocol/sdk", McpFrameworks.TypeScript),
     };
 
     // NuGet ids are compared in lower case.
@@ -335,6 +339,7 @@ public static class PackageCatalog
         new PackagePattern("microsoft.agents.ai*", "microsoft_agent_framework"),
         new PackagePattern("autogen*", "autogen_dotnet"),
         new PackagePattern("microsoft.extensions.ai*", "microsoft_extensions_ai"),
+        new PackagePattern("modelcontextprotocol*", McpFrameworks.CSharp),
     };
 
     public static string FindFramework(PackageEcosystem ecosystem, string packageName)
@@ -416,4 +421,20 @@ public class PackagePattern
     public string Pattern { get; }
 
     public string FrameworkKey { get; }
+}
+
+/// <summary>The framework keys of MCP servers (Section 12). Their findings have kind "mcp_server".</summary>
+public static class McpFrameworks
+{
+    public const string Python = "mcp_python";
+    public const string TypeScript = "mcp_typescript";
+    public const string CSharp = "mcp_csharp";
+
+    /// <summary>Servers read from an AI client's configuration file rather than from code.</summary>
+    public const string ClientConfig = "mcp_config";
+
+    public static bool IsMcpServer(string frameworkKey)
+    {
+        return frameworkKey == Python || frameworkKey == TypeScript || frameworkKey == CSharp || frameworkKey == ClientConfig;
+    }
 }

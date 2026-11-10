@@ -103,7 +103,8 @@ public class JournalWatcher : IDisposable
         HashSet<string> changedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (UsnRecord record in records)
         {
-            if (record.IsDirectory || !CandidateFileNames.IsCandidate(record.FileName))
+            bool mightMatter = CandidateFileNames.IsCandidate(record.FileName) || McpClientConfigs.MightBeConfigFileName(record.FileName);
+            if (record.IsDirectory || !mightMatter)
             {
                 continue; // most changes are to files we do not care about: drop them before any file system call
             }
@@ -115,7 +116,10 @@ public class JournalWatcher : IDisposable
             }
 
             string filePath = Path.Combine(folderPath, record.FileName);
-            if (!SkipRules.IsInSkippedFolder(filePath))
+
+            // MCP client configurations sit in AppData, .cursor, .vscode, ...: folders that are skipped for code.
+            bool isMcpConfig = McpClientConfigs.Identify(filePath) != null;
+            if (isMcpConfig || !SkipRules.IsInSkippedFolder(filePath))
             {
                 changedFiles.Add(filePath);
             }

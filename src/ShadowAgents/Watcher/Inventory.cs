@@ -68,7 +68,8 @@ public class AgentInventory
             if (scanned.Framework.Key != "n8n")
             {
                 scanned.Runtime = known.Runtime;
-                if (scanned.IsAgent() && known.Runtime.Running)
+                bool canRun = scanned.IsAgent() || scanned.IsConfiguredMcpServer();
+                if (canRun && known.Runtime.Running)
                 {
                     scanned.State = FindingStates.Running;
                 }
@@ -208,6 +209,142 @@ public class AgentInventory
         return changes;
     }
 
+    // ------------------------------------------------------------ configured MCP servers (Section 12)
+
+    /// <summary>
+    /// Configured stdio MCP servers whose process this command line is, found by the server's package or
+    /// script path ("node ...\@modelcontextprotocol\server-filesystem\dist\index.js" is server-filesystem).
+    /// </summary>
+    public List<string> FindMcpServersStartedBy(string commandLine)
+    {
+        List<string> serverIds = new List<string>();
+        foreach (FindingRecord record in this.records.Values)
+        {
+            if (!record.IsConfiguredMcpServer() || record.McpServer.Transport != "stdio")
+            {
+                continue;
+            }
+
+            string signature = McpServerProfile.ProcessSignature(record.McpServer);
+            if (signature == null)
+            {
+                continue;
+            }
+
+            // Packages are written with '/', but on a command line they are often part of a Windows path.
+            string windowsSignature = signature.Replace('/', '\\');
+            bool appears = commandLine.IndexOf(signature, StringComparison.OrdinalIgnoreCase) >= 0
+                || commandLine.IndexOf(windowsSignature, StringComparison.OrdinalIgnoreCase) >= 0;
+            if (appears)
+            {
+                serverIds.Add(record.Id);
+            }
+        }
+
+        return serverIds;
+    }
+
+    public List<InventoryChange> MarkMcpServerRunning(string serverId, string processDescription, DateTimeOffset now)
+    {
+        List<InventoryChange> changes = new List<InventoryChange>();
+        FindingRecord record = Find(serverId);
+        if (record == null)
+        {
+            return changes;
+        }
+
+        bool wasRunning = record.Runtime.Running;
+        bool isNewProcess = !record.Runtime.Processes.Contains(processDescription);
+        record.Runtime.Running = true;
+        record.Runtime.LastSeenRunning = now;
+        record.State = FindingStates.Running;
+        if (isNewProcess)
+        {
+            record.Runtime.Processes.Add(processDescription);
+        }
+
+        if (!wasRunning || isNewProcess)
+        {
+            changes.Add(new InventoryChange(InventoryChange.Changed, record));
+        }
+
+        return changes;
+    }
+
+    /// <summary>The server's process ended. It goes back to "referenced" (configured) once no process of it is left.</summary>
+    public List<InventoryChange> MarkMcpServerProcessEnded(string serverId, string processDescription, DateTimeOffset now)
+    {
+        List<InventoryChange> changes = new List<InventoryChange>();
+        FindingRecord record = Find(serverId);
+        if (record == null || !record.Runtime.Processes.Remove(processDescription))
+        {
+            return changes;
+        }
+
+        record.Runtime.LastSeenRunning = now;
+        if (record.Runtime.Processes.Count == 0)
+        {
+            record.Runtime.Running = false;
+            record.State = FindingStates.Referenced;
+        }
+
+        changes.Add(new InventoryChange(InventoryChange.Changed, record));
+        return changes;
+    }
+
+    /// <summary>
+    /// A proxied request went to a configured remote MCP server. There is no "stopped" event for remote
+    /// servers, so only lastSeenRunning is kept, and a change is sent the first time only (like observed models).
+    /// </summary>
+    public List<InventoryChange> MarkRemoteMcpServerUsed(Uri requestUrl, DateTimeOffset now)
+    {
+        List<InventoryChange> changes = new List<InventoryChange>();
+        foreach (FindingRecord record in this.records.Values)
+        {
+            if (!record.IsConfiguredMcpServer() || record.McpServer.Url == null)
+            {
+                continue;
+            }
+
+            Uri serverUrl;
+            if (!Uri.TryCreate(record.McpServer.Url, UriKind.Absolute, out serverUrl))
+            {
+                continue;
+            }
+
+            bool sameHost = serverUrl.Host.Equals(requestUrl.Host, StringComparison.OrdinalIgnoreCase) && serverUrl.Port == requestUrl.Port;
+            bool samePath = requestUrl.AbsolutePath.StartsWith(serverUrl.AbsolutePath, StringComparison.OrdinalIgnoreCase);
+            if (!sameHost || !samePath)
+            {
+                continue;
+            }
+
+            bool firstTimeSeen = record.Runtime.LastSeenRunning == null;
+            record.Runtime.LastSeenRunning = now;
+            if (firstTimeSeen)
+            {
+                changes.Add(new InventoryChange(InventoryChange.Changed, record));
+            }
+        }
+
+        return changes;
+    }
+
+    /// <summary>The per-user MCP configuration files behind known findings, to re-read on the incremental schedule.</summary>
+    public List<string> KnownUserMcpConfigFiles()
+    {
+        HashSet<string> configFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (FindingRecord record in this.records.Values)
+        {
+            if (record.IsConfiguredMcpServer() && record.Project == null)
+            {
+                configFiles.Add(record.McpServer.ConfigFile);
+            }
+        }
+
+        return new List<string>(configFiles);
+    }
+
     /// <summary>A model seen in proxy traffic from this project's process. The observed model is the one that matters for risk.</summary>
     public List<InventoryChange> AddObservedModel(string projectRoot, ModelRecord observedModel, DateTimeOffset now)
     {
@@ -292,6 +429,10 @@ public class AgentInventory
         else if (record.Environment != null)
         {
             location = record.Environment.Path;
+        }
+        else if (record.McpServer != null)
+        {
+            location = record.McpServer.ConfigFile; // a per-user MCP configuration has no project
         }
 
         if (location == null)

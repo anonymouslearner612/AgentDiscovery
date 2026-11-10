@@ -20,6 +20,7 @@ public static class JavaScriptFrameworkRules
         VercelAiSdk(),
         LlamaIndexTs(),
         ClaudeAgentSdkTs(),
+        McpServerTypeScript(),
     };
 
     private static FrameworkRule LangChainJs()
@@ -171,6 +172,31 @@ public static class JavaScriptFrameworkRules
                 ["mcpServers"] = Capabilities.Mcp,
                 ["agents"] = Capabilities.Delegation,
             },
+        };
+    }
+
+    /// <summary>
+    /// MCP servers (Section 12): <c>const server = new McpServer({ name: "weather", version: "1.0.0" })</c>
+    /// with tools added as <c>server.tool("get_forecast", ...)</c> or <c>server.registerTool(...)</c>.
+    /// The older low-level <c>new Server({ name })</c> counts too. Both names are common, so they count
+    /// only when imported from the MCP SDK.
+    /// </summary>
+    private static FrameworkRule McpServerTypeScript()
+    {
+        return new FrameworkRule
+        {
+            Key = McpFrameworks.TypeScript,
+            Language = SourceLanguage.TypeScript,
+            ModuleRoots = new List<string> { "@modelcontextprotocol/sdk*" },
+            Constructors = new List<AgentConstructor>
+            {
+                new AgentConstructor { CallName = "McpServer", RequiresExplicitImport = true },
+                new AgentConstructor { CallName = "Server", RequiresExplicitImport = true },
+            },
+            DescriptionArgs = new List<string> { "instructions", "description" },
+            ModelArgs = new List<string>(),
+            ToolArgs = new List<string>(),
+            ToolMethodCalls = new List<string> { "tool", "registerTool" },
         };
     }
 }

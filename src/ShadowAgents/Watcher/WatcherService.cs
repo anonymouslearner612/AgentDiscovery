@@ -21,6 +21,10 @@ public class WatcherService : IDisposable
     private readonly TelemetryLog telemetry;
     private readonly ProxyEventReader proxyEvents;
     private readonly ChangeBatcher batcher = new ChangeBatcher();
+
+    // Per-user MCP configuration files that changed. Waits like project changes do: Claude Code
+    // rewrites .claude.json many times in a row.
+    private readonly ChangeBatcher mcpConfigBatcher = new ChangeBatcher();
     private readonly List<ScanRequest> scanQueue = new List<ScanRequest>();
     private readonly List<JournalWatcher> journals = new List<JournalWatcher>();
     private readonly RuntimeCorrelator correlator;
@@ -117,6 +121,12 @@ public class WatcherService : IDisposable
             QueueRootScan(quietRoots, "file-change", now);
         }
 
+        List<string> quietMcpConfigs = mcpConfigBatcher.TakeQuietRoots(now, TimeSpan.FromSeconds(Settings.DebounceSeconds));
+        if (quietMcpConfigs.Count > 0)
+        {
+            QueueMcpConfigScan(quietMcpConfigs, "mcp-config-change", now);
+        }
+
         QueueDueSchedules(now);
         RunNextScanIfAllowed(now, cancellationToken);
     }
@@ -128,6 +138,10 @@ public class WatcherService : IDisposable
     public void OnProxyRequest(int processId, Uri url, string requestBody)
     {
         DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        // A request to a remote MCP server that an AI client is configured with (Section 12).
+        SendChanges(inventory.MarkRemoteMcpServerUsed(url, now), now);
+
         if (LlmEndpoints.ProviderFor(url) == null)
         {
             return;
@@ -218,7 +232,19 @@ public class WatcherService : IDisposable
 
             foreach (string changedFile in changedFiles)
             {
-                batcher.AddChange(ProjectRootFinder.FindRootFor(changedFile), now);
+                McpConfigLocation mcpConfig = McpClientConfigs.Identify(changedFile);
+                if (mcpConfig != null && mcpConfig.ProjectFolder == null)
+                {
+                    mcpConfigBatcher.AddChange(changedFile, now);
+                }
+                else if (mcpConfig != null)
+                {
+                    batcher.AddChange(mcpConfig.ProjectFolder, now);
+                }
+                else
+                {
+                    batcher.AddChange(ProjectRootFinder.FindRootFor(changedFile), now);
+                }
             }
         }
     }
@@ -304,7 +330,21 @@ public class WatcherService : IDisposable
             {
                 QueueRootScan(roots, "incremental-schedule", now);
             }
+
+            List<string> mcpConfigFiles = inventory.KnownUserMcpConfigFiles();
+            if (mcpConfigFiles.Count > 0)
+            {
+                QueueMcpConfigScan(mcpConfigFiles, "incremental-schedule", now);
+            }
         }
+    }
+
+    /// <summary>Re-reads per-user MCP configuration files without walking any folder.</summary>
+    private void QueueMcpConfigScan(List<string> configFiles, string reason, DateTimeOffset now)
+    {
+        ScanRequest request = new ScanRequest { Reason = reason, QueuedAt = now };
+        request.McpConfigFiles.AddRange(configFiles);
+        scanQueue.Add(request);
     }
 
     private void QueueVolumeScan(string drive, string reason, DateTimeOffset now)
@@ -436,16 +476,17 @@ public class WatcherService : IDisposable
 
         List<InventoryChange> changes = inventory.ApplyScanResults(new List<FindingRecord>(), deletedRoots);
 
-        if (existingRoots.Count > 0 || request.Volumes.Count > 0)
+        if (existingRoots.Count > 0 || request.Volumes.Count > 0 || request.McpConfigFiles.Count > 0)
         {
             ScanJob job = new ScanJob
             {
                 Roots = existingRoots,
                 Volumes = request.Volumes,
+                McpConfigFiles = request.McpConfigFiles,
                 CachePath = Path.Combine(this.stateFolder, "scan-cache.db"),
             };
 
-            Log("Scanning (" + request.Reason + "): " + DescribeScope(request.Volumes, existingRoots));
+            Log("Scanning (" + request.Reason + "): " + DescribeScope(request.Volumes, existingRoots, request.McpConfigFiles));
             ScannerLauncher launcher = new ScannerLauncher(Path.Combine(this.stateFolder, "work"));
             ScanOutcome outcome = launcher.Run(job, cancellationToken);
 
@@ -454,6 +495,7 @@ public class WatcherService : IDisposable
             if (outcome.IsComplete)
             {
                 scope.AddRange(existingRoots);
+                scope.AddRange(request.McpConfigFiles); // a server removed from its file is removed here too
                 foreach (string drive in request.Volumes)
                 {
                     scope.Add(drive + "\\");
@@ -526,7 +568,7 @@ public class WatcherService : IDisposable
         return ScanRunner.ResolveVolumes(new List<string> { "auto" });
     }
 
-    private static string DescribeScope(List<string> volumes, List<string> roots)
+    private static string DescribeScope(List<string> volumes, List<string> roots, List<string> mcpConfigFiles)
     {
         List<string> parts = new List<string>(volumes);
         if (roots.Count <= 5)
@@ -536,6 +578,11 @@ public class WatcherService : IDisposable
         else
         {
             parts.Add(roots.Count + " project folders");
+        }
+
+        if (mcpConfigFiles.Count > 0)
+        {
+            parts.Add(mcpConfigFiles.Count + " MCP configuration files");
         }
 
         return string.Join(", ", parts);

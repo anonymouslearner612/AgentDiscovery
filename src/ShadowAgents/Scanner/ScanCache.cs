@@ -15,7 +15,7 @@ public sealed class ScanCache : IDisposable
     /// Bump whenever detection rules or the cached result shape change: every cached result is then
     /// discarded and files are re-read once.
     /// </summary>
-    public const string DetectionRulesVersion = "2026-11-05.1";
+    public const string DetectionRulesVersion = "2026-11-10.1";
 
     private const int WritesPerTransaction = 200;
 

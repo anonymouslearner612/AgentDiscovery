@@ -206,7 +206,7 @@ public static class ModelProviders
 {
     // Prefixes used in provider-qualified model strings: "openai:gpt-4o" (Pydantic AI),
     // "openai/gpt-4o" (LiteLLM), "anthropic:claude-sonnet-4-5" and so on.
-    private static readonly Dictionary<string, string> ProviderPrefixes = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, string> ProviderPrefixes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["openai"] = "openai",
         ["azure"] = "azure_openai",

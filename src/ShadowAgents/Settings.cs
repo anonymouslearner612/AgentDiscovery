@@ -33,6 +33,11 @@ public static class Settings
     /// <summary>How many constructor anchors are examined per file before giving up.</summary>
     public const int MaxConstructorAttemptsPerFile = 256;
 
+    // ---- MCP servers (design doc Section 12)
+
+    /// <summary>At most this many arguments of a configured MCP server are reported.</summary>
+    public const int MaxMcpServerArguments = 30;
+
     // ---- watcher
 
     /// <summary>Wait this long with no further changes in a project before scanning it.</summary>

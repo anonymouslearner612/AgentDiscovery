@@ -139,8 +139,11 @@ public class ProjectScanner
     private static void MergeFileResults(List<FileDetectionResult> fileResults, ProjectScanResult result)
     {
         Dictionary<string, ModelReference> projectModelAssignments = new Dictionary<string, ModelReference>(StringComparer.Ordinal);
+        List<string> projectMcpServerTools = new List<string>();
         foreach (FileDetectionResult fileResult in fileResults)
         {
+            ListHelpers.AddDistinct(projectMcpServerTools, fileResult.McpServerTools);
+
             foreach (string frameworkKey in fileResult.ReferencedFrameworks)
             {
                 result.ReferencedFrameworks.Add(frameworkKey);
@@ -159,6 +162,13 @@ public class ProjectScanner
 
         foreach (DetectedAgent agent in result.Agents)
         {
+            if (agent.FrameworkKey == McpFrameworks.CSharp && projectMcpServerTools.Count > 0)
+            {
+                ListHelpers.AddDistinct(agent.Tools, projectMcpServerTools);
+                CapabilityClassifier.Apply(agent);
+                AgentConfidence.UpgradeIfAttributesFound(agent);
+            }
+
             if (agent.UnresolvedModelVariable == null || agent.Models.Count > 0)
             {
                 continue;
@@ -358,6 +368,7 @@ public sealed class ScanStatistics
     public int FilesUnreadable { get; set; }
     public int FilesWithDetectionCap { get; set; }
     public int AgentsFound { get; set; }
+    public int McpServersFound { get; set; }
     public int InventoryRecords { get; set; }
     public bool StoppedEarly { get; set; }
     public string StopReason { get; set; }
