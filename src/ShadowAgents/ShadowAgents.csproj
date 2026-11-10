@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    One console program, ShadowAgents.exe, with two commands:
+      ShadowAgents scan [folder]   find agents now (the design doc's "scanner")
+      ShadowAgents watch           keep watching and scan when needed (the design doc's "watcher")
+    Every setting is hard-coded in Settings.cs.
+
+    Target: .NET Framework 4.6.2 (installed on every supported Windows version, so nothing extra to deploy).
+    Build:    dotnet build
+    Publish:  dotnet publish -c Release      → publish\ (ShadowAgents.exe plus its DLLs; copy the whole folder)
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net462</TargetFramework>
+    <AssemblyName>ShadowAgents</AssemblyName>
+    <RootNamespace>ShadowAgents</RootNamespace>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- 64-bit only: the SQLite native DLL and the NTFS structures are used as 64-bit. -->
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <!-- Only English messages from the libraries: no "cs", "de", "fr", ... folders next to the exe. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <!-- Small memory footprint (Section 9): workstation GC, no background GC thread. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <PublishDir>$(MSBuildThisFileDirectory)..\..\publish\</PublishDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Cronos" Version="0.13.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
+    <PackageReference Include="System.Text.Json" Version="10.0.14" />
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Part of .NET Framework itself. -->
+    <Reference Include="System.Management" />
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lets the test project see the program's internal classes. -->
+    <InternalsVisibleTo Include="ShadowAgents.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/ShadowAgents/ShadowAgents.csproj" />
+  <Project Path="tests/ShadowAgents.Tests/ShadowAgents.Tests.csproj" />
+</Solution>

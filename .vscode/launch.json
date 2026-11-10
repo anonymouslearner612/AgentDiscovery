@@ -1,0 +1,37 @@
+{
+  // Run and Debug (Ctrl+Shift+D): pick a configuration, then press F5.
+  // The program runs in the TERMINAL panel. Press Ctrl+C there to stop a scan or watch.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "scan: my user profile",
+      "type": "clr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/ShadowAgents/bin/Debug/net462/win-x64/ShadowAgents.exe",
+      "args": ["scan", "${env:USERPROFILE}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "scan: every drive (start VS Code as administrator)",
+      "type": "clr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/ShadowAgents/bin/Debug/net462/win-x64/ShadowAgents.exe",
+      "args": ["scan"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "watch (Ctrl+C to stop)",
+      "type": "clr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/ShadowAgents/bin/Debug/net462/win-x64/ShadowAgents.exe",
+      "args": ["watch"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ]
+}
